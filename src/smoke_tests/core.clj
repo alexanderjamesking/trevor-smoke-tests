@@ -9,11 +9,10 @@
   :throw-exceptions false
 })
 
-(def cps-headers {"X-Candy-Platform" "desktop" "X-Candy-Audience" "domestic" "Accept" "application/json"})
-
 (defn call-producer-for-assets [asset-uris]
   (doseq [uri asset-uris]
-    (let [res (client/get uri (merge http-conf {:headers cps-headers}))
+    (let [cps-headers {"X-Candy-Platform" "desktop" "X-Candy-Audience" "domestic" "Accept" "application/json"}
+          res (client/get uri (merge http-conf {:headers cps-headers}))
           body (json/read-json (:body res))
           asset-uri (-> body :results first :assetUri)]
       (println asset-uri)
@@ -21,14 +20,11 @@
         (client/get (str "http://127.0.0.1:8185/content/cps" asset-uri))
         (catch Exception e (println "ex1: " (.getMessage e)))))))
 
-(defn get-asset-uris [body] 
+(defn get-cps-uris [body] 
   (for [asset (:results body)]
     (for [locator (:locator asset)]
       (when (.startsWith locator "urn:asset")
-        (let [uri (.substring locator 10)]
-          (str "https://api.live.bbc.co.uk/content/curie/asset:" uri))))))
-
-(def ldp-headers {"Accept" "application/json-ld"})
+        (str "https://api.live.bbc.co.uk/content/curie/asset:" (.substring locator 10))))))
 
 (defn ldp-uri [concept page]
   (str "https://api.live.bbc.co.uk/ldp-core/creative-works-v2?about=" concept "&format=TextualFormat&page=" page))
@@ -51,14 +47,12 @@
   (doseq [page (range 1 30)] ; 30 pages of assets
     (doseq [concept ldp-concepts] ; call each page for each concept
       (try
-        (let [uri (ldp-uri concept page)
-          _ (println uri)
-          ; call ldp to get a list of assets for a concept
-          res (client/get uri (merge http-conf {:headers ldp-headers}))
-          ; parse the response
-          body (json/read-json (:body res))
-          ; call cps to get the json for each asset and extract the assetUri
-          asset-uris (remove nil? (flatten (get-asset-uris body)))]
-          ; call the producer
+        (let [ld-uri (ldp-uri concept page)
+              _ (println "Processing: " ld-uri)
+              ; call ldp to get a list of assets for a concept
+              res (client/get ld-uri (merge http-conf {:headers {"Accept" "application/json-ld"}}))
+              body (json/read-json (:body res))
+              ; call cps to get the json for each asset and extract the assetUri
+              asset-uris (remove nil? (flatten (get-cps-uris body)))]
           (call-producer-for-assets asset-uris))
         (catch Exception e (println "ex0: " (.getMessage e)))))))
